@@ -816,8 +816,19 @@ async function saveFile(name,data){
   try{const u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),4000)}catch(e){toast('Salvataggio non riuscito')}
 }
 const canShareFiles=()=>{try{return !!(navigator.canShare&&navigator.canShare({files:[new File([new Blob(['x'])],'x.png',{type:'image/png'})]}))}catch(e){return false}};
-let lastPng=null;const imgCache={};
-function loadImg(src){return imgCache[src]||(imgCache[src]=new Promise((ok,ko)=>{const i=new Image();i.onload=()=>ok(i);i.onerror=()=>{delete imgCache[src];ko(new Error('img '+src))};i.src=src}))}
+let lastPng=null;
+/* Carica un livello della pianta per l'esportazione. Le immagini sono grandi: su iPhone Safari
+   a volte fallisce, quindi si riprova e si carica un'immagine alla volta (vedi exportPng). */
+async function loadImgOnce(src,retry){
+  const r=await fetch(src,{cache:retry?'reload':'default'});if(!r.ok)throw new Error('HTTP '+r.status);
+  const blob=await r.blob();
+  if(window.createImageBitmap){try{const bm=await createImageBitmap(blob);return{img:bm,close:()=>{try{bm.close()}catch(_){}}}}catch(e){}}
+  const u=URL.createObjectURL(blob);
+  try{const i=await new Promise((ok,ko)=>{const i=new Image();i.onload=()=>ok(i);i.onerror=()=>ko(new Error('decode'));i.src=u});
+    if(i.decode)await i.decode().catch(()=>{});return{img:i,close:()=>{i.src='';URL.revokeObjectURL(u)}}}
+  catch(e){URL.revokeObjectURL(u);throw e}
+}
+async function loadImg(src){let err;for(let a=0;a<3;a++){try{return await loadImgOnce(src,a>0)}catch(e){err=e;await new Promise(r=>setTimeout(r,400*(a+1)))}}throw new Error('immagine '+src+' ('+(err&&err.message||'errore')+')')}
 function num(el,a,d=0){const v=parseFloat(el.getAttribute(a));return isFinite(v)?v:d}
 function applyTf(ctx,t){if(!t)return;const re=/(\w+)\(([^)]*)\)/g;let m;while((m=re.exec(t))){const a=m[2].trim().split(/[\s,]+/).map(Number);
   if(m[1]==='translate')ctx.translate(a[0],a[1]||0);
@@ -855,7 +866,6 @@ async function exportPng(){
   try{
     const k=2.3,TOP=80,BOT=90,W=Math.round(1150*k),Hh=Math.round((1496+TOP+BOT)*k);
     const layersToDraw=['plan_base.png'];if(layers.mobili)layersToDraw.push('plan_mobili.png');if(layers.dims)layersToDraw.push('plan_dims.png');if(layers.rooms)layersToDraw.push('plan_rooms.png');
-    const imgs=await Promise.all(layersToDraw.map(loadImg));
     const c=document.createElement('canvas');c.width=W;c.height=Hh;const x=c.getContext('2d');
     x.fillStyle=PAPER;x.fillRect(0,0,W,Hh);
     x.save();x.scale(k,k);
@@ -865,7 +875,9 @@ async function exportPng(){
     x.textAlign='right';x.font='500 15px Outfit, Helvetica, Arial, sans-serif';x.fillStyle='#5a5052';x.fillText(`AliceDue · scala reale · misure in cm · ${d}`,1120,52);
     x.translate(0,TOP);
     if(layers.grid){x.lineWidth=.5;for(let v=0;v<=1150;v+=50){x.strokeStyle=v%100?'#ebdcc3':'#dcc39e';x.beginPath();x.moveTo(v,0);x.lineTo(v,1496);x.stroke()}for(let v=0;v<=1496;v+=50){x.strokeStyle=v%100?'#ebdcc3':'#dcc39e';x.beginPath();x.moveTo(0,v);x.lineTo(1150,v);x.stroke()}}
-    for(const im of imgs)x.drawImage(im,0,0,1150,1496);
+    const skipped=[];
+    for(const src of layersToDraw){let L;try{L=await loadImg(src)}catch(e){if(src==='plan_base.png')throw e;skipped.push(src);continue}
+      try{x.drawImage(L.img,0,0,1150,1496)}finally{L.close()}}
     const host=document.createElementNS('http://www.w3.org/2000/svg','g');host.innerHTML=dynSvg(1.1,null);
     let drawn=0,failed=0;const walk=(el)=>{for(const ch of Array.from(el.childNodes)){if(ch.nodeType!==1)continue;try{drawEl(x,ch);drawn++}catch(e){failed++;console.error(e)}}};walk(host);
     const L=cur();if((L.items.length||L.measures.length||L.areas.length)&&!drawn)throw new Error('arredi non disegnati');
@@ -873,9 +885,14 @@ async function exportPng(){
     x.translate(30,1496+45);x.fillStyle=INK;x.fillRect(0,0,100,10);x.fillStyle='#fff';x.fillRect(100,0,100,10);x.strokeStyle=INK;x.lineWidth=2;x.setLineDash([]);x.strokeRect(0,0,200,10);
     x.fillStyle=INK;x.font='600 14px Outfit, Helvetica, Arial, sans-serif';x.textAlign='center';x.fillText('0',0,-8);x.fillText('1 m',100,-8);x.fillText('2 m',200,-8);
     x.restore();
-    const url=c.toDataURL('image/png');
-    lastPng=await new Promise(r=>c.toBlob(r,'image/png'));
+    const blob=await new Promise(r=>c.toBlob(r,'image/png'));
+    c.width=c.height=0;
+    if(!blob)throw new Error('immagine troppo grande per questo telefono');
+    lastPng=blob;
+    // data URL come prima: su iPhone permette «tieni premuto → Salva in Foto»
+    const url=await new Promise((ok,ko)=>{const fr=new FileReader();fr.onload=()=>ok(fr.result);fr.onerror=()=>ko(new Error('lettura immagine'));fr.readAsDataURL(blob)});
     showExport(url);
+    if(skipped.length)toast('Alcuni livelli non sono stati caricati: riprova se mancano');
   }catch(err){console.error(err);toast('Esportazione non riuscita: '+(err&&err.message?err.message:'errore'))}
 }
 function showExport(url){closeSheet();$('#exImg').src=url;$('#exov').hidden=false;const share=!downloads&&canShareFiles();$('#exSave').hidden=!lastPng;$('#exSave').textContent=downloads?'Salva in File':share?'Salva in Foto / Condividi':'Scarica immagine';$('#exSave').classList.toggle('acc',share);$('#exNote').textContent=downloads?'Il pulsante qui sotto salva invece un file PNG nell\'app File.':share?'Dal menu di condivisione scegli «Salva immagine» per metterla nelle Foto.':'Oppure usa il pulsante qui sotto per scaricarla.'}
