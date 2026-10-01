@@ -49,6 +49,8 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke
 :focus-visible{outline:3px solid var(--yellow);outline-offset:2px}
 .topbar{position:fixed;left:10px;right:10px;top:calc(var(--top) + 8px);display:flex;gap:6px;align-items:center;z-index:5;pointer-events:none}
 .topbar>*{pointer-events:auto}
+.zoomc{position:fixed;right:10px;top:50%;transform:translateY(-50%);display:none;flex-direction:column;gap:8px;z-index:5}
+@media (hover:hover) and (pointer:fine){.zoomc{display:flex}}
 .brand{display:flex;align-items:center;gap:7px;padding:3px 10px 3px 4px;height:36px;min-width:0;flex:0 1 auto;text-align:left}
 .badge{width:24px;height:24px;border-radius:50%;border:2px solid var(--ink);background:conic-gradient(from 200deg,var(--purple),var(--blue),var(--pink),var(--orange),var(--yellow),var(--purple));flex:none;display:grid;place-items:center}
 .badge i{width:10px;height:10px;border-radius:50%;background:var(--paper);border:2px solid var(--ink);transition:background .2s}
@@ -185,6 +187,7 @@ h3:first-child{margin-top:4px}
   <button class="pill rb" id="menuBtn" aria-label="Menu: elenchi e impostazioni"><svg class="i" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10"/></svg></button>
   <button class="pill rb" id="focusBtn" aria-label="Solo pianta, a schermo pieno"><svg class="i" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
 </header>
+<div class="zoomc" id="zoomc"><button class="pill rb" id="zIn" aria-label="Ingrandisci" title="Ingrandisci (+)"><svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button><button class="pill rb" id="zOut" aria-label="Rimpicciolisci" title="Rimpicciolisci (−)"><svg class="i" viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button><button class="pill rb" id="zFit" aria-label="Pianta intera" title="Pianta intera (0)"><svg class="i" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg></button></div>
 <div class="scale" id="scale"><span id="sbl">1 m</span><div class="bar" id="sbb"></div></div>
 <div class="hint" id="hint" hidden></div>
 <div class="welcome" id="welcome" hidden><b>La tua pianta, in scala vera</b>Tocca il <strong>+</strong> per aggiungere un arredo</div>
@@ -788,11 +791,22 @@ function endPtr(e){
 cv.addEventListener('pointerup',endPtr);cv.addEventListener('pointercancel',endPtr);
 function finishMeasure(){pushHist();const m={id:uid('m'),a:mLine,b:preview};cur().measures.push(m);mLine=null;preview=null;snapMark=null;changed();toast('Misura aggiunta: '+fmt(Math.hypot(m.b[0]-m.a[0],m.b[1]-m.a[1]))+' cm')}
 function finishArea(){if(!mArea||mArea.length<3){toast('Servono almeno 3 punti');return}pushHist();const a={id:uid('a'),name:'Superficie '+(cur().areas.length+1),pts:mArea};cur().areas.push(a);mArea=null;preview=null;snapMark=null;setTool('select');sel={kind:'area',id:a.id};changed()}
-cv.addEventListener('wheel',e=>{e.preventDefault();if(!e.ctrlKey&&e.deltaMode===0&&!Number.isInteger(e.deltaY/100)){cam.x+=e.deltaX/cam.k;cam.y+=e.deltaY/cam.k;moveCam();return}zoomAt(Math.exp(-e.deltaY*(e.ctrlKey?0.012:0.0018)),e.clientX,e.clientY)},{passive:false});
+cv.addEventListener('wheel',e=>{e.preventDefault();
+  // la rotellina zooma sempre (come nelle mappe); con Maiusc sposta la pianta
+  const u=e.deltaMode===1?33:e.deltaMode===2?VH:1;let dx=e.deltaX*u,dy=e.deltaY*u;
+  if(e.shiftKey&&!e.ctrlKey){if(!dx){dx=dy;dy=0}cam.x+=dx/cam.k;cam.y+=dy/cam.k;moveCam();return}
+  dy=Math.max(-120,Math.min(120,dy));zoomAt(Math.exp(-dy*(e.ctrlKey?0.012:0.0025)),e.clientX,e.clientY)},{passive:false});
+// Safari su Mac: pizzico del trackpad
+let gsc=null;cv.addEventListener('gesturestart',e=>{gsc={s:1}});
+cv.addEventListener('gesturechange',e=>{if(!gsc||pinch)return;zoomAt(e.scale/gsc.s,e.clientX,e.clientY);gsc.s=e.scale});
+cv.addEventListener('gestureend',()=>{gsc=null});
 let lastTap=0;cv.addEventListener('pointerup',e=>{if(tool!=='select'||pinch||e.target.closest('[data-kind],[data-h]'))return;const now=Date.now();if(now-lastTap<300&&downInfo&&Math.hypot(e.clientX-downInfo.x,e.clientY-downInfo.y)<10){zoomAt(1.8,e.clientX,e.clientY);lastTap=0}else lastTap=now});
-window.addEventListener('keydown',e=>{if(/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName))return;const mod=e.metaKey||e.ctrlKey;if(mod&&e.key.toLowerCase()==='z'){e.preventDefault();e.shiftKey?redo():undo()}else if(e.key==='Escape'){if(sheetKind)closeSheet();else{setTool('select');sel=null;render();renderCtx()}}else if((e.key==='Delete'||e.key==='Backspace')&&sel){e.preventDefault();delSel()}});
+window.addEventListener('keydown',e=>{if(/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName))return;const mod=e.metaKey||e.ctrlKey;
+  if(!mod&&(e.key==='+'||e.key==='=')){zoomAt(1.4,VW/2,VH/2);return}if(!mod&&(e.key==='-'||e.key==='_')){zoomAt(1/1.4,VW/2,VH/2);return}if(!mod&&e.key==='0'){fit();return}
+  if(mod&&e.key.toLowerCase()==='z'){e.preventDefault();e.shiftKey?redo():undo()}else if(e.key==='Escape'){if(sheetKind)closeSheet();else{setTool('select');sel=null;render();renderCtx()}}else if((e.key==='Delete'||e.key==='Backspace')&&sel){e.preventDefault();delSel()}});
 
 /* ---------- Pulsanti ---------- */
+$('#zIn').onclick=()=>zoomAt(1.4,VW/2,VH/2);$('#zOut').onclick=()=>zoomAt(1/1.4,VW/2,VH/2);$('#zFit').onclick=()=>fit();
 $('#measBtn').onclick=()=>setTool(tool==='select'?'measure':'select');
 $('#exportBtn').onclick=()=>exportPng();
 $('#addBtn').onclick=()=>openSheet('cat');
