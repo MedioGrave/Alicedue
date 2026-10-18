@@ -242,6 +242,7 @@ const GROUPS={
   cucina:{n:'Cucina',f:'#f9d562'},
   studio:{n:'Studio',f:'#8fd6cf'},
   decoro:{n:'Decoro',f:'#8fcf7e'},
+  luci:{n:'Luci a soffitto',f:'#ffd84d'},
   gen:{n:'Generici',f:'#d9d2c3'}
 };
 const SWATCHES=['#f9b25e','#f48a7e','#f59ac2','#ab98ec','#82b3f1','#f9d562','#b7d98c','#efe1ca'];
@@ -311,6 +312,13 @@ const CAT=[
   {t:'lamp',n:'Appendiabiti',w:45,d:45,p:[[40,40],[45,45],[50,50]]},
   {t:'round',n:'Cesto',w:40,d:40,p:[[30,30],[40,40],[50,50]]},
   {t:'rect',n:'Mobile ingresso',w:120,d:40,p:[[80,35],[100,40],[120,40],[140,45]]}]],
+ ['luci',[
+  {t:'ceil',n:'Punto luce',w:12,d:12,p:[[8,8],[12,12],[15,15]]},
+  {t:'ceil',n:'Plafoniera',w:40,d:40,p:[[30,30],[40,40],[50,50],[60,60]]},
+  {t:'ceil',n:'Lampadario / sospensione',w:60,d:60,p:[[40,40],[50,50],[60,60],[80,80],[100,100]]},
+  {t:'ceil',n:'Faretto a incasso',w:9,d:9,p:[[7,7],[9,9],[12,12]]},
+  {t:'ceilbar',n:'Binario con faretti',w:120,d:8,p:[[60,8],[100,8],[120,8],[150,8],[200,8]]},
+  {t:'ceilbar',n:'Sospensione lineare',w:120,d:12,p:[[90,10],[120,12],[150,12]]}]],
  ['gen',[
   {t:'rect',n:'Rettangolo',w:100,d:50,p:[]},
   {t:'circle',n:'Cerchio',w:60,d:60,p:[]},
@@ -325,7 +333,7 @@ let mArea=null, mLine=null, preview=null, snapMark=null, sheetKind=null, catG='s
 const KW={'Divano 2 posti':'sofa','Divano 3 posti':'sofa','Divano angolare':'sofa penisola chaise longue ad angolo','Poltrona':'divano sedia','Tavolino':'tavolo caffe basso','Mobile TV':'televisione televisore porta tv','Libreria':'scaffale mensole','Tappeto':'','Tavolo':'pranzo rettangolare','Tavolo rotondo':'pranzo tondo','Tavolo quadrato':'pranzo','Sedia':'','Madia':'credenza buffet','Letto matrimoniale':'letto due piazze','Letto 1 piazza e ½':'letto piazza e mezza francese','Letto singolo':'letto una piazza','Comodino':'','Armadio':'guardaroba','Cassettiera':'comò como settimino','Scrivania':'tavolo studio','Sedia scrivania':'sedia ufficio','Piatto doccia':'doccia box','Vasca':'vasca da bagno','WC':'water vaso tazza gabinetto sanitari','Bidet':'sanitari','Lavabo':'lavandino lavello bagno','Mobile bagno':'lavandino lavabo lavello','Lavabo doppio':'lavandino doppio lavello due vasche mobile bagno','Lavatrice':'lavasciuga','Asciugatrice':'','Frigorifero':'frigo','Piano cottura':'fornelli induzione gas','Lavello':'lavandino cucina','Lavastoviglie':'','Forno':'','Base cucina':'mobile cucina','Pensile':'mobile cucina','Isola / penisola':'cucina tavolo','Scrivania ad angolo':'scrivania angolare l studio','Sedia ergonomica':'sedia ufficio girevole studio','Libreria a giorno alta':'libreria scaffale kallax studio','Cassettiera ufficio':'cassettiera studio','Mensola':'mensole scaffale','Archivio / armadietto':'armadio ufficio studio','Poltrona lettura':'poltrona studio','Pianta piccola':'piante vaso verde','Pianta grande':'piante vaso verde','Ficus / albero':'pianta piante albero vaso','Lampada da terra':'luce lampade piantana','Pouf':'seduta poggiapiedi','Specchio da terra':'specchio','Consolle':'mobile ingresso','Scarpiera':'scarpe ingresso','Appendiabiti':'attaccapanni ingresso','Cesto':'cesta','Mobile ingresso':'ingresso consolle','Rettangolo':'forma generico','Cerchio':'forma tondo generico','Colonna / pilastro':'forma'};
 const norm=t=>String(t).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,' ').trim();
 let db=null, dbLive=false, pending={}, saving={}, hist={};
-let layers={items:true,dims:false,rooms:true,mobili:false,grid:false,clash:true};
+let layers={items:true,lights:true,dims:false,rooms:true,mobili:false,grid:false,clash:true};
 try{Object.assign(layers,JSON.parse(LS.get('pianta.layers2')||'{}'))}catch(e){}
 magnet=LS.get('pianta.magnet')!=='0';
 const cur=()=>layouts[curId];
@@ -350,12 +358,13 @@ function centroid(p){let a=0,cx=0,cy=0;for(let i=0;i<p.length;i++){const q=p[i],
 function inConvex(pt,poly){let sg=0;for(let i=0;i<poly.length;i++){const a=poly[i],b=poly[(i+1)%poly.length];const c=(b[0]-a[0])*(pt[1]-a[1])-(b[1]-a[1])*(pt[0]-a[0]);if(Math.abs(c)<1e-9)continue;const s=Math.sign(c);if(!sg)sg=s;else if(s!==sg)return false}return true}
 function satOverlap(A,B){for(const P of[A,B])for(let i=0;i<P.length;i++){const a=P[i],b=P[(i+1)%P.length],nx=a[1]-b[1],ny=b[0]-a[0];let a0=1e9,a1=-1e9,b0=1e9,b1=-1e9;for(const q of A){const v=q[0]*nx+q[1]*ny;a0=Math.min(a0,v);a1=Math.max(a1,v)}for(const q of B){const v=q[0]*nx+q[1]*ny;b0=Math.min(b0,v);b1=Math.max(b1,v)}const L=Math.hypot(nx,ny)||1;if(a1-b0<0.5*L||b1-a0<0.5*L)return false}return true}
 function raySeg(o,d,a,b){const ex=b[0]-a[0],ey=b[1]-a[1],den=d[0]*ey-d[1]*ex;if(Math.abs(den)<1e-12)return Infinity;const t=((a[0]-o[0])*ey-(a[1]-o[1])*ex)/den,u=((a[0]-o[0])*d[1]-(a[1]-o[1])*d[0])/den;return(t>1e-6&&u>=-1e-9&&u<=1+1e-9)?t:Infinity}
-function obstacles(excl){const ob=[];if(layers.items===false)return ob;for(const it of cur().items){if(it.id===excl||it.t==='rug'||it.t==='wallcab')continue;for(const pl of worldParts(it))for(let i=0;i<pl.length;i++)ob.push([pl[i],pl[(i+1)%pl.length]])}return ob}
+const CEIL=['ceil','ceilbar']; // luci a soffitto: stanno sopra tutto
+function obstacles(excl){const ob=[];if(layers.items===false)return ob;for(const it of cur().items){if(it.id===excl||it.t==='rug'||it.t==='wallcab'||CEIL.includes(it.t))continue;for(const pl of worldParts(it))for(let i=0;i<pl.length;i++)ob.push([pl[i],pl[(i+1)%pl.length]])}return ob}
 function castRay(o,d,ob){let best=Infinity;for(const s of SEGS){const t=raySeg(o,d,[s[0],s[1]],[s[2],s[3]]);if(t<best)best=t}for(const s of ob){const t=raySeg(o,d,s[0],s[1]);if(t<best)best=t}return best}
 function clearances(it){
   const parts=worldParts(it),a=(it.r||0)*Math.PI/180,c=Math.cos(a),s=Math.sin(a);
   const dirs=[[s,-c],[c,s],[-s,c],[-c,-s]];
-  const ob=it.t==='rug'?[]:obstacles(it.id), res=[];
+  const ob=(it.t==='rug'||CEIL.includes(it.t))?[]:obstacles(it.id), res=[];
   for(const D of dirs){let best={t:Infinity};
     for(const pl of parts){const cc=centroid(pl);
       for(let i=0;i<pl.length;i++){const p=pl[i],q=pl[(i+1)%pl.length];let nx=q[1]-p[1],ny=p[0]-q[0];const L=Math.hypot(nx,ny);if(L<1e-6)continue;nx/=L;ny/=L;const m=[(p[0]+q[0])/2,(p[1]+q[1])/2];if((m[0]-cc[0])*nx+(m[1]-cc[1])*ny<0){nx=-nx;ny=-ny}
@@ -384,7 +393,7 @@ function applyLayers(){
   const m=$('#L-Mobili');if(m)m.style.display=layers.mobili?'':'none';
   if(!layers.grid){gGrid.innerHTML=''}else{let h='';for(let x=0;x<=1150;x+=50)h+=`<line x1="${x}" y1="0" x2="${x}" y2="1496" stroke="${x%100?'#ebdcc3':'#dcc39e'}" class="ns" stroke-width="${x%100?.7:1.1}"/>`;for(let y=0;y<=1496;y+=50)h+=`<line x1="0" y1="${y}" x2="1150" y2="${y}" stroke="${y%100?'#ebdcc3':'#dcc39e'}" class="ns" stroke-width="${y%100?.7:1.1}"/>`;gGrid.innerHTML=h}
 }
-function saveLayers(){LS.set('pianta.layers2',JSON.stringify(layers));applyLayers();if(!layers.items&&sel&&sel.kind==='item')sel=null;render();renderCtx()}
+function saveLayers(){LS.set('pianta.layers2',JSON.stringify(layers));applyLayers();if(sel&&sel.kind==='item'){const si=cur().items.find(i=>i.id===sel.id);if(!layers.items||(si&&layers.lights===false&&CEIL.includes(si.t)))sel=null}render();renderCtx()}
 
 /* ---------- Camera ---------- */
 function resize(){VW=Math.max(1,innerWidth);VH=Math.max(1,innerHeight);applyCam()}
@@ -469,6 +478,8 @@ function sym(it,f){
     case 'hob':{o=R(x0,y0,w,h,M,4);const r=Math.min(w,h)*.14;for(const q of[[-.25,-.25],[.25,-.25],[-.25,.25],[.25,.25]])o+=E(q[0]*w,q[1]*h,r,r,W);break}
     case 'sink':{const bw=Math.min(w*.55,50);o=R(x0,y0,w,h,M,4)+R(x0+6,y0+6,bw,h-12,W,6)+E(x0+6+bw/2,0,2.5,2.5,N)+Ln(x0+14+bw,y0+10,-x0-6,y0+10,'stroke-opacity=".4"');break}
     case 'appliance':o=R(x0,y0,w,h,M,3)+Ln(x0,y0,-x0,-y0,'stroke-dasharray="4 3"')+Ln(-x0,y0,x0,-y0,'stroke-dasharray="4 3"');break;
+    case 'ceil':{const r=Math.min(w,h)/2,q=r*.45*.7071;o=E(0,0,r,r,`fill="${f}" fill-opacity=".35" stroke="${s}" class="isl" stroke-dasharray="3 2"`)+E(0,0,r*.45,r*.45,M)+`<line x1="${-q}" y1="${-q}" x2="${q}" y2="${q}" ${N}/><line x1="${-q}" y1="${q}" x2="${q}" y2="${-q}" ${N}/>`;break}
+    case 'ceilbar':{o=R(x0,y0,w,h,`fill="${f}" fill-opacity=".35" stroke="${s}" class="isl" stroke-dasharray="4 2"`,h/2);const n=Math.max(2,Math.round(w/30)),rr=Math.min(h*.38,6);for(let i=0;i<n;i++)o+=E(x0+(i+.5)*w/n,0,rr,rr,M);break}
     case 'wallcab':o=R(x0,y0,w,h,`fill="${f}" fill-opacity=".45" stroke="${s}" class="ish" stroke-dasharray="6 3"`,2)+Ln(x0,y0,-x0,-y0,'stroke-opacity=".4"');break;
     default:o=R(x0,y0,w,h,M,3);
   }
@@ -477,12 +488,12 @@ function sym(it,f){
 const fillOf=it=>it.color||GROUPS[it.g||'gen'].f;
 function itemTf(it){return`translate(${it.x} ${it.y}) rotate(${it.r||0})${it.flip?' scale(-1 1)':''}`}
 function normAng(a){a=((a%360)+360)%360;if(a>90&&a<=270)a-=180;if(a>180)a-=360;return a}
-const ROUNDT=['round','circle','plant','lamp'];
+const ROUNDT=['round','circle','plant','lamp','ceil'];
 const dimsTxt=it=>ROUNDT.includes(it.t)&&it.w===it.d?`Ø ${fmt(it.w)}`:`${fmt(it.w)} × ${fmt(depthOf(it))}`;
 
 /* ---------- Render ---------- */
 let clashSet=new Set();
-const SEATS=['chair','officechair','armchair'],SURF=['table','round','desk','deskL','sofa','sofaL','bed'],FREE=['rug','wallcab','plant','lamp','mirror'];
+const SEATS=['chair','officechair','armchair'],SURF=['table','round','desk','deskL','sofa','sofaL','bed'],FREE=['rug','wallcab','plant','lamp','mirror','ceil','ceilbar'];
 function clashExempt(a,b){const A=a.t,B=b.t;if(SEATS.includes(A)&&SURF.includes(B)||SEATS.includes(B)&&SURF.includes(A))return true;if(A==='nightstand'&&B==='bed'||B==='nightstand'&&A==='bed')return false;return false}
 function computeClashes(){clashSet=new Set();if(layers.items===false||layers.clash===false)return;const its=cur().items.filter(i=>!FREE.includes(i.t));const P=its.map(worldParts);for(let i=0;i<its.length;i++)for(let j=i+1;j<its.length;j++){if(clashExempt(its[i],its[j]))continue;let hit=false;for(const a of P[i]){for(const b of P[j])if(satOverlap(a,b)){hit=true;break}if(hit)break}if(hit){clashSet.add(its[i].id);clashSet.add(its[j].id)}}}
 function tag(txt,x,y,ang,fs,col){
@@ -513,7 +524,7 @@ function itemSvg(it,k){
 function dynSvg(k,selId){
   const L=cur();let o='';
   for(const a of L.areas)o+=areaSvg(a,k,selId);
-  const its=(layers.items===false?[]:[...L.items]).sort((a,b)=>(a.t==='rug'?-1:0)-(b.t==='rug'?-1:0)||(a.t==='wallcab'?1:0)-(b.t==='wallcab'?1:0));
+  const its=(layers.items===false?[]:L.items.filter(i=>layers.lights!==false||!CEIL.includes(i.t))).sort((a,b)=>(a.t==='rug'?-1:0)-(b.t==='rug'?-1:0)||(a.t==='wallcab'?1:0)-(b.t==='wallcab'?1:0)||(CEIL.includes(a.t)?1:0)-(CEIL.includes(b.t)?1:0));
   for(const it of its)o+=itemSvg(it,k);
   for(const m of L.measures)o+=measureSvg(m,k,selId);
   return o;
@@ -655,7 +666,7 @@ function renderSheet(){
   }else if(sheetKind==='menu'){T.textContent='Menu';const L=cur();
     const tg=(k,l,s)=>`<button class="tg" data-layer="${k}"><span><b>${l}</b>${s?`<small>${s}</small>`:''}</span><i class="sw-t${(k==='magnet'?magnet:layers[k])?' on':''}"></i></button>`;
     o+=`<button class="btn acc" id="exPng" style="width:100%;justify-content:center;margin:2px 0 6px">Esporta immagine della pianta</button>`;
-    o+=`<h3>Cosa vedere</h3>`+tg('items','I tuoi arredi','Nascondili per vedere la pianta vuota: restano salvati')+tg('dims','Quote del progetto','Misure, sigle di porte e finestre')+tg('rooms','Nomi delle stanze','Con i metri quadri')+tg('mobili','Arredi del progetto','I mobili di esempio dell\'impresa')+tg('grid','Griglia ogni 50 cm','')+tg('clash','Segnala sovrapposizioni','Bordo rosso se due arredi si sovrappongono')+tg('magnet','Aggancia gli arredi ai muri','Si attaccano quando arrivano vicini');
+    o+=`<h3>Cosa vedere</h3>`+tg('items','I tuoi arredi','Nascondili per vedere la pianta vuota: restano salvati')+tg('lights','Luci a soffitto','Plafoniere, lampadari e faretti')+tg('dims','Quote del progetto','Misure, sigle di porte e finestre')+tg('rooms','Nomi delle stanze','Con i metri quadri')+tg('mobili','Arredi del progetto','I mobili di esempio dell\'impresa')+tg('grid','Griglia ogni 50 cm','')+tg('clash','Segnala sovrapposizioni','Bordo rosso se due arredi si sovrappongono')+tg('magnet','Aggancia gli arredi ai muri','Si attaccano quando arrivano vicini');
     o+=`<h3>Misure e superfici</h3>`;
     if(!L.measures.length&&!L.areas.length)o+=`<div class="empty">Ancora nessuna. Con <b>Misura</b> tocchi due punti (si agganciano a spigoli e muri); poi puoi trascinarle o spostarne le estremità. Per una superficie, dentro Misura tocca <b>m²</b> e poi gli angoli della zona.</div>`;
     L.measures.forEach((m,i)=>o+=`<div class="li${sel&&sel.id===m.id?' on':''}" data-pick="measure:${m.id}"><span class="dt" style="background:#ec5f9c"></span><b>Misura ${i+1}</b><code>${fmt(Math.hypot(m.b[0]-m.a[0],m.b[1]-m.a[1]))} cm</code><button class="x" data-delm="${m.id}" aria-label="Elimina">${IC.x}</button></div>`);
@@ -812,7 +823,7 @@ $('#exportBtn').onclick=()=>exportPng();
 $('#addBtn').onclick=()=>openSheet('cat');
 $('#menuBtn').onclick=()=>openSheet('menu');
 $('#lyBtn').onclick=()=>openSheet('ly');
-function renderVpop(){const tg=(k,l,s)=>`<button class="tg" data-vl="${k}"><span><b>${l}</b>${s?`<small>${s}</small>`:''}</span><i class="sw-t${layers[k]?' on':''}"></i></button>`;$('#vpop').innerHTML=tg('items','Arredi','I mobili che hai inserito')+tg('dims','Quote','Misure del progetto')+tg('rooms','Nomi stanze','Con i m²')+tg('grid','Griglia','Ogni 50 cm');$('#viewBtn').classList.toggle('on',!$('#vpop').hidden);if(!$('#vpop').hidden)$('#welcome').hidden=true;else renderCtx()}
+function renderVpop(){const tg=(k,l,s)=>`<button class="tg" data-vl="${k}"><span><b>${l}</b>${s?`<small>${s}</small>`:''}</span><i class="sw-t${layers[k]?' on':''}"></i></button>`;$('#vpop').innerHTML=tg('items','Arredi','I mobili che hai inserito')+tg('lights','Luci','A soffitto')+tg('dims','Quote','Misure del progetto')+tg('rooms','Nomi stanze','Con i m²')+tg('grid','Griglia','Ogni 50 cm');$('#viewBtn').classList.toggle('on',!$('#vpop').hidden);if(!$('#vpop').hidden)$('#welcome').hidden=true;else renderCtx()}
 $('#viewBtn').onclick=e=>{e.stopPropagation();$('#vpop').hidden=!$('#vpop').hidden;renderVpop()};
 $('#vpop').addEventListener('click',e=>{const b=e.target.closest('[data-vl]');if(!b)return;layers[b.dataset.vl]=!layers[b.dataset.vl];saveLayers();renderVpop()});
 cv.addEventListener('pointerdown',()=>{if(!$('#vpop').hidden){$('#vpop').hidden=true;renderVpop()}},true);
